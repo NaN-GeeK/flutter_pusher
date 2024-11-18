@@ -190,20 +190,32 @@
       }
 
       func onEvent(event: PusherEvent) {
-        var userId: String?
-        if event.eventName == "pusher:subscription_succeeded" {
-          if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
-            userId = channel.myId
+          var userId: String?
+          var uniqueData: Any = event.data ?? []
+
+          if let dataArray = event.data as? [[String: Any]] {
+              uniqueData = Array(Set(dataArray.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
+                  .compactMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
+          } else if let dataDict = event.data as? [String: Any] {
+              uniqueData = dataDict
           }
-        }
-        methodChannel.invokeMethod(
-          "onEvent", arguments: [
-            "channelName": event.channelName,
-            "eventName": event.eventName,
-            "userId": event.userId ?? userId,
-            "data": event.data,
-          ]
-        )
+
+          // If the event name is 'pusher:subscription_succeeded', retrieve userId from the presence channel.
+          if event.eventName == "pusher:subscription_succeeded" {
+              if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
+                  userId = channel.myId
+              }
+          }
+
+          // Now invoke the method channel with the unique data.
+          methodChannel.invokeMethod(
+              "onEvent", arguments: [
+                  "channelName": event.channelName,
+                  "eventName": event.eventName,
+                  "userId": event.userId ?? userId,
+                  "data": uniqueData,
+              ]
+          )
       }
 
       func subscribe(call: FlutterMethodCall, result: @escaping FlutterResult) {
