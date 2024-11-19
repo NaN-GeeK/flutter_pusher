@@ -190,44 +190,57 @@
       }
 
       func onEvent(event: PusherEvent) {
-            var userId: String?
-            var uniqueData: Any = event.data ?? []
+          var userId: String?
+          var uniqueData: Any = event.data ?? []
 
-            if let eventData = event.data,
-               let jsonData = eventData.data(using: .utf8),
-               let parsedData = try? JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any],
-               let dataArray = parsedData["data"] as? [[String: Any]] {
+          // Verifica se o eventName é "new-messages"
+          if event.eventName == "new-messages",
+             let eventData = event.data as? [String: Any],
+             let dataArray = eventData["data"] as? [[String: Any]] {
 
-                let now = Date()
-                let fiveMinutesAgo = now.addingTimeInterval(-10 * 60)
+              let now = Date()
+              let tenMinutesAgo = now.addingTimeInterval(-5 * 60) // 5 minutos atrás
 
-                // verifica se possui created_at e filtra unificando para não exibir eventos antigos (no intervalo 10 minutos)
-                let filteredData = dataArray.filter { item in
-                    if let createdAtString = item["created_at"] as? String,
-                       let createdAt = ISO8601DateFormatter().date(from: createdAtString) {
-                        return createdAt > fiveMinutesAgo
-                    }
-                    return true
-                }
+              // Filtra os eventos unificando
+              let filteredData = dataArray.filter { message in
+                  if let createdAtString = message["created_at"] as? String,
+                     let createdAtDate = ISO8601DateFormatter().date(from: createdAtString) {
+                      return createdAtDate >= tenMinutesAgo
+                  }
+                  // Se created_at não estiver presente, mantém o evento
+                  return true
+              }
 
-                uniqueData = ["type": parsedData["type"], "target": parsedData["target"], "data": filteredData]
-            }
+              // Remove eventos duplicados
+              filteredData = Array(Set(filteredData.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
+                  .compactMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
 
-            if event.eventName == "pusher:subscription_succeeded" {
-                if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
-                    userId = channel.myId
-                }
-            }
+              // Atualiza o uniqueData com os dados filtrados e únicos
+              uniqueData = filteredData
+          }
 
-            methodChannel.invokeMethod(
-                "onEvent", arguments: [
-                    "channelName": event.channelName,
-                    "eventName": event.eventName,
-                    "userId": event.userId ?? userId,
-                    "data": uniqueData,
-                ]
-            )
-        }
+          // Processa apenas se ainda houver dados válidos
+          if let validData = uniqueData as? [[String: Any]], validData.isEmpty {
+              return
+          }
+
+          // Recupera o userId caso seja um evento de assinatura
+          if event.eventName == "pusher:subscription_succeeded" {
+              if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
+                  userId = channel.myId
+              }
+          }
+
+          // Invoca o método do canal com os dados filtrados
+          methodChannel.invokeMethod(
+              "onEvent", arguments: [
+                  "channelName": event.channelName,
+                  "eventName": event.eventName,
+                  "userId": event.userId ?? userId,
+                  "data": uniqueData,
+              ]
+          )
+      }
 
       func subscribe(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as! [String: String]
