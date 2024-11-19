@@ -215,12 +215,15 @@
                         return true
                     }
 
-                    // Remove duplicados para todos os eventos usando um Set
-                    let uniqueFilteredData = Array(Set(filteredData.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
-                        .compactMap { data in
-                            guard let data = data else { return nil }
-                            return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+                    // Unifica events ignore repetidos
+                    let uniqueFilteredData = Array(Set(filteredData.compactMap { message in
+                        if let jsonData = try? JSONSerialization.data(withJSONObject: message, options: []) {
+                            return jsonData
                         }
+                        return nil
+                    })).compactMap { data in
+                        try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+                    }
 
                     // Atualiza o uniqueData com os dados filtrados e únicos
                     uniqueData = uniqueFilteredData
@@ -242,14 +245,14 @@
             // Invoca o método do canal com os dados unificados
             methodChannel.invokeMethod(
                 "onEvent", arguments: [
-                    "channelName": event.channelName,
-                    "eventName": event.eventName,
+                    "channelName": event.channelName ?? "",
+                    "eventName": event.eventName ?? "",
                     "typeEvent": "updated",
-                    "userId": event.userId ?? userId,
-                    "data": uniqueData,
+                    "userId": event.userId ?? userId ?? "",
+                    "data": uniqueData as Any
                 ]
             )
-        }
+      }
 
       func subscribe(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as! [String: String]
