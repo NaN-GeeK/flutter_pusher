@@ -190,33 +190,44 @@
       }
 
       func onEvent(event: PusherEvent) {
-          var userId: String?
-          var uniqueData: Any = event.data ?? []
+            var userId: String?
+            var uniqueData: Any = event.data ?? []
 
-          if let dataArray = event.data as? [[String: Any]] {
-              uniqueData = Array(Set(dataArray.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
-                  .compactMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
-          } else if let dataDict = event.data as? [String: Any] {
-              uniqueData = dataDict
-          }
+            if let eventData = event.data,
+               let jsonData = eventData.data(using: .utf8),
+               let parsedData = try? JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any],
+               let dataArray = parsedData["data"] as? [[String: Any]] {
 
-          // If the event name is 'pusher:subscription_succeeded', retrieve userId from the presence channel.
-          if event.eventName == "pusher:subscription_succeeded" {
-              if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
-                  userId = channel.myId
-              }
-          }
+                let now = Date()
+                let fiveMinutesAgo = now.addingTimeInterval(-10 * 60)
 
-          // Now invoke the method channel with the unique data.
-          methodChannel.invokeMethod(
-              "onEvent", arguments: [
-                  "channelName": event.channelName,
-                  "eventName": event.eventName,
-                  "userId": event.userId ?? userId,
-                  "data": uniqueData,
-              ]
-          )
-      }
+                // verifica se possui created_at e filtra unificando para não exibir eventos antigos (no intervalo 10 minutos)
+                let filteredData = dataArray.filter { item in
+                    if let createdAtString = item["created_at"] as? String,
+                       let createdAt = ISO8601DateFormatter().date(from: createdAtString) {
+                        return createdAt > fiveMinutesAgo
+                    }
+                    return true
+                }
+
+                uniqueData = ["type": parsedData["type"], "target": parsedData["target"], "data": filteredData]
+            }
+
+            if event.eventName == "pusher:subscription_succeeded" {
+                if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
+                    userId = channel.myId
+                }
+            }
+
+            methodChannel.invokeMethod(
+                "onEvent", arguments: [
+                    "channelName": event.channelName,
+                    "eventName": event.eventName,
+                    "userId": event.userId ?? userId,
+                    "data": uniqueData,
+                ]
+            )
+        }
 
       func subscribe(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as! [String: String]
