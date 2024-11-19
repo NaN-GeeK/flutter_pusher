@@ -190,57 +190,66 @@
       }
 
       func onEvent(event: PusherEvent) {
-          var userId: String?
-          var uniqueData: Any = event.data ?? []
+            var userId: String?
+            var uniqueData: Any = event.data ?? []
 
-          // Verifica se o eventName é "new-messages"
-          if event.eventName == "new-messages",
-             let eventData = event.data as? [String: Any],
-             let dataArray = eventData["data"] as? [[String: Any]] {
+            // Verifica se event.data é um dicionário com a chave "data"
+            if let eventData = event.data as? [String: Any],
+               let dataArray = eventData["data"] as? [[String: Any]] {
 
-              let now = Date()
-              let tenMinutesAgo = now.addingTimeInterval(-5 * 60) // 5 minutos atrás
+                // Verifica se o eventName é "new-messages"
+                if event.eventName == "new-messages" {
+                    let now = Date()
+                    let tenMinutesAgo = now.addingTimeInterval(-5 * 60) // 5 minutos atrás
 
-              // Filtra os eventos unificando
-              let filteredData = dataArray.filter { message in
-                  if let createdAtString = message["created_at"] as? String,
-                     let createdAtDate = ISO8601DateFormatter().date(from: createdAtString) {
-                      return createdAtDate >= tenMinutesAgo
-                  }
-                  // Se created_at não estiver presente, mantém o evento
-                  return true
-              }
+                    // Filtra os eventos por 'created_at' (aplicável a todos os eventos)
+                    var filteredData = dataArray.filter { message in
+                        if let createdAtString = message["created_at"] as? String {
+                            let isoDateFormatter = ISO8601DateFormatter()
+                            isoDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds] // Para suportar frações de segundos
+                            if let createdAtDate = isoDateFormatter.date(from: createdAtString) {
+                                return createdAtDate >= tenMinutesAgo
+                            }
+                        }
+                        // Se 'created_at' não estiver presente ou não for válido, mantém o evento
+                        return true
+                    }
 
-              // Remove eventos duplicados
-              filteredData = Array(Set(filteredData.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
-                  .compactMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
+                    // Remove duplicados para todos os eventos usando um Set
+                    let uniqueFilteredData = Array(Set(filteredData.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
+                        .compactMap { data in
+                            guard let data = data else { return nil }
+                            return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+                        }
 
-              // Atualiza o uniqueData com os dados filtrados e únicos
-              uniqueData = filteredData
-          }
+                    // Atualiza o uniqueData com os dados filtrados e únicos
+                    uniqueData = uniqueFilteredData
+                }
+            }
 
-          // Processa apenas se ainda houver dados válidos
-          if let validData = uniqueData as? [[String: Any]], validData.isEmpty {
-              return
-          }
+            // Processa apenas se ainda houver dados válidos
+            if let validData = uniqueData as? [[String: Any]], validData.isEmpty {
+                return
+            }
 
-          // Recupera o userId caso seja um evento de assinatura
-          if event.eventName == "pusher:subscription_succeeded" {
-              if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
-                  userId = channel.myId
-              }
-          }
+            // Recupera o userId caso seja um evento de assinatura
+            if event.eventName == "pusher:subscription_succeeded" {
+                if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
+                    userId = channel.myId
+                }
+            }
 
-          // Invoca o método do canal com os dados filtrados
-          methodChannel.invokeMethod(
-              "onEvent", arguments: [
-                  "channelName": event.channelName,
-                  "eventName": event.eventName,
-                  "userId": event.userId ?? userId,
-                  "data": uniqueData,
-              ]
-          )
-      }
+            // Invoca o método do canal com os dados unificados
+            methodChannel.invokeMethod(
+                "onEvent", arguments: [
+                    "channelName": event.channelName,
+                    "eventName": event.eventName,
+                    "typeEvent": "updated",
+                    "userId": event.userId ?? userId,
+                    "data": uniqueData,
+                ]
+            )
+        }
 
       func subscribe(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as! [String: String]
