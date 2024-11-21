@@ -191,31 +191,30 @@
       }
 
       func onEvent(event: PusherEvent) {
-          let eventIdentifier = "\(event.channelName ?? ""):\(event.eventName):\(event.data ?? "")"
-
-          if processedEvents.contains(eventIdentifier) {
-              print("Evento já processado: \(eventIdentifier)")
-              return
-          }
-
-          processedEvents.insert(eventIdentifier)
-
           var userId: String?
           var uniqueData: Any = event.data ?? []
 
-          if let dataArray = event.data as? [[String: Any]] {
+          // desserializa o campo `data` se for uma string
+          if let jsonDataString = event.data as? String {
+              if let jsonData = jsonDataString.data(using: .utf8) {
+                  uniqueData = try? JSONSerialization.jsonObject(with: jsonData, options: [])
+              }
+          }
+
+          // processa se o dado for um array
+          if let dataArray = uniqueData as? [[String: Any]] {
               uniqueData = Array(Set(dataArray.map { try! JSONSerialization.data(withJSONObject: $0, options: []) }))
                   .compactMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
           }
 
-          // Check event name is 'pusher:subscription_succeeded', retrieve userId from the presence channel.
+          // verifica se o evento é 'pusher:subscription_succeeded' e recupera o userId do canal
           if event.eventName == "pusher:subscription_succeeded" {
               if let channel = pusher.connection.channels.findPresence(name: event.channelName!) {
                   userId = channel.myId
               }
           }
 
-          // Now invoke the method channel with the unique data.
+          // invoca o método no canal com os dados únicos
           methodChannel.invokeMethod(
               "onEvent", arguments: [
                   "channelName": event.channelName,
