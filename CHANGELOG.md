@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.2
+## 2.2.3
 
 * [CHANGED] Update PusherSwift SDK to 10.1.5 
 
